@@ -3,6 +3,7 @@ name = "exskill-backend"
 version = "0.1.0"
 description = "Ex-Skill fullstack backend — distill an ex into an AI persona"
 authors = ["dev <dev@exskill.local>"]
+license = "MIT"
 readme = "README.md"
 package-mode = false
 
