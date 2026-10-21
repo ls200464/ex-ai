@@ -1,0 +1,26 @@
+# Keep secrets and local state out of the image. `COPY . .` copies the build
+# context, not the git index, so a local backend/.env with real API keys would
+# otherwise be baked into a published layer.
+.env
+.env.*
+!.env.example
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+*.db
+*.sqlite3
+
+data/uploads/
+
+.git
+.gitignore
+Dockerfile
+.dockerignore

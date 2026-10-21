@@ -1,9 +1,8 @@
-version: "3.9"
-
 services:
   db:
     image: pgvector/pgvector:pg16
     container_name: exskill-db
+    restart: unless-stopped
     environment:
       POSTGRES_USER: exskill
       POSTGRES_PASSWORD: exskill_dev
@@ -21,6 +20,7 @@ services:
   backend:
     build: ./backend
     container_name: exskill-backend
+    restart: unless-stopped
     ports:
       - "8000:8000"
     environment:
@@ -47,13 +47,21 @@ services:
       - uploads:/app/data/uploads
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        # Baked into the build: the Next server proxies /api/* here. It has to be
+        # the service name, since the rewrite is resolved from this container.
+        BACKEND_INTERNAL_URL: http://backend:8000
     container_name: exskill-frontend
+    restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
+      # The client calls the relative /api, which the Next server proxies to the
+      # backend. Setting NEXT_PUBLIC_API_URL here would do nothing: it is inlined
+      # at build time, not read at runtime.
       - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000/api}
     depends_on:
       - backend
 
