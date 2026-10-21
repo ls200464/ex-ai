@@ -22,8 +22,14 @@ class ChatService:
         self,
         persona: Persona,
         user_message: str,
-    ) -> str:
-        """Build the system prompt from persona layers + retrieved memories."""
+    ) -> tuple[str, list[dict]]:
+        """Build the system prompt from persona layers + retrieved memories.
+
+        Returns the prompt together with the retrieved memories, so the caller
+        can report which memories were actually used. Returning only the prompt
+        left the SSE `done` event reporting an empty list on every turn, even
+        when memories had been injected.
+        """
         # Retrieve relevant memories via RAG
         memory_results = await self.embedding_service.similarity_search(
             query=user_message,
@@ -108,7 +114,7 @@ class ChatService:
 - 回复自然流畅，像真人聊天一样，不要写小作文
 - 不要在每条消息里塞太多东西——像正常聊天一样，一句一句来"""
 
-        return prompt
+        return prompt, memory_results
 
     async def stream_response(
         self,
@@ -127,7 +133,7 @@ class ChatService:
             return
 
         # Build system prompt
-        system_prompt = await self.build_system_prompt(persona, user_message)
+        system_prompt, retrieved_memories = await self.build_system_prompt(persona, user_message)
 
         # Build messages array
         messages = [{"role": "system", "content": system_prompt}]
@@ -139,7 +145,6 @@ class ChatService:
         messages.append({"role": "user", "content": user_message})
 
         full_response = ""
-        retrieved_memories = []
 
         # Try LangChain streaming first, fall back to lightweight client
         try:

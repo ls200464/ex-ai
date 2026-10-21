@@ -2,11 +2,29 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 
 from app.config import settings
 
 _IS_SQLITE = settings.DATABASE_URL.startswith("sqlite")
+
+# Characters that separate tokens: whitespace, CJK punctuation, typographic
+# quotes, and ASCII punctuation. Built with re.escape instead of a hand-escaped
+# character class, and shared by both tokenizers — the previous version carried
+# the same pattern twice, written as a single-quoted raw string containing `''`,
+# which silently ended the literal and concatenated a second, non-raw fragment
+# with invalid escapes (`\[`, `\]`) intended for a different quote character.
+_SEPARATOR_CHARS = (
+    "\u3000"                        # ideographic space
+    "，。！？、；："
+    "\u201c\u201d\u2018\u2019"      # curly double/single quotes
+    "【】《》（）「」『』"
+    "-.?!;:()[]{}"
+    "\"'"
+)
+_WORD_SPLIT = re.compile("[" + re.escape(_SEPARATOR_CHARS) + r"\s]+")
 
 
 class EmbeddingService:
@@ -45,7 +63,6 @@ class EmbeddingService:
         surface-level text similarity. Not as good as real embeddings, but
         MUCH better than zero vectors for retrieval.
         """
-        import hashlib
         result = [0.0] * dims
         text_lower = text.lower()
         # Hash character bigrams into vector dimensions
@@ -55,9 +72,7 @@ class EmbeddingService:
             idx = h % dims
             result[idx] += 1.0
         # Also hash individual words (split on whitespace and common CJK punctuation)
-        import re
-        words = re.split(r'[\s，。！？、；：""''【】《》（）\-,.!?;:()\[\]{}""'']+', text_lower)
-        for word in words:
+        for word in _WORD_SPLIT.split(text_lower):
             if len(word) >= 2:
                 h = int(hashlib.md5(word.encode()).hexdigest()[:8], 16)
                 idx = h % dims
@@ -106,32 +121,36 @@ class EmbeddingService:
                 )
                 chunks = result.scalars().all()
 
-                # Check if stored embeddings are all zero vectors (no embedding API)
-                all_zero_embeddings = all(
-                    not chunk.embedding or
-                    all(float(x) == 0.0 for x in chunk.embedding.split(","))
-                    for chunk in chunks
-                )
+                # Embeddings are stored as comma-separated text. Rows that do not
+                # parse are dropped, where a bare float() over every chunk used to
+                # raise and abort the whole search.
+                usable: list[tuple] = []
+                for chunk in chunks:
+                    chunk_emb = self._parse_embedding(chunk.embedding)
+                    if chunk_emb is None or all(value == 0.0 for value in chunk_emb):
+                        continue
+                    if len(chunk_emb) != len(query_embedding):
+                        # Different embedding model than the query (e.g. the
+                        # provider or model setting changed). Cosine similarity
+                        # would report 0.0 for every row, silently returning
+                        # nothing, so treat these rows as unusable.
+                        continue
+                    usable.append((chunk, chunk_emb))
 
-                if all_zero_embeddings:
+                if not usable:
                     # Use keyword-based matching instead of broken vector similarity
                     scored = self._keyword_search(query, chunks, top_k)
                 else:
                     scored = []
-                    for chunk in chunks:
-                        if chunk.embedding:
-                            try:
-                                chunk_emb = [float(x) for x in chunk.embedding.split(",")]
-                                similarity = self._cosine_similarity(query_embedding, chunk_emb)
-                                if similarity >= threshold:
-                                    scored.append({
-                                        "chunk_id": chunk.id,
-                                        "memory_id": chunk.memory_id,
-                                        "content": chunk.content,
-                                        "similarity_score": round(similarity, 4),
-                                    })
-                            except (ValueError, AttributeError):
-                                continue
+                    for chunk, chunk_emb in usable:
+                        similarity = self._cosine_similarity(query_embedding, chunk_emb)
+                        if similarity >= threshold:
+                            scored.append({
+                                "chunk_id": chunk.id,
+                                "memory_id": chunk.memory_id,
+                                "content": chunk.content,
+                                "similarity_score": round(similarity, 4),
+                            })
 
                     scored.sort(key=lambda x: x["similarity_score"], reverse=True)
                     scored = scored[:top_k]
@@ -183,8 +202,6 @@ class EmbeddingService:
         Uses overlapping word/character n-grams between query and chunk content
         to score relevance. Much better than returning nothing.
         """
-        import re
-
         def tokenize(text: str) -> set:
             """Extract meaningful tokens from text."""
             # Split on whitespace and punctuation
@@ -194,8 +211,7 @@ class EmbeddingService:
             for i in range(len(text_lower) - 1):
                 tokens.add(text_lower[i:i+2])
             # Full words (2+ chars)
-            words = re.split(r'[\s，。！？、；：""''【】《》（）\-,.!?;:()\[\]{}""'']+', text_lower)
-            for w in words:
+            for w in _WORD_SPLIT.split(text_lower):
                 if len(w) >= 2:
                     tokens.add(w)
             return tokens
@@ -222,6 +238,17 @@ class EmbeddingService:
 
         scored.sort(key=lambda x: x["similarity_score"], reverse=True)
         return scored[:top_k]
+
+    @staticmethod
+    def _parse_embedding(raw) -> list[float] | None:
+        """Parse a stored comma-separated embedding, or None when unusable."""
+        if not raw:
+            return None
+        try:
+            values = [float(part) for part in raw.split(",")]
+        except (AttributeError, ValueError):
+            return None
+        return values or None
 
     @staticmethod
     def _cosine_similarity(a: list[float], b: list[float]) -> float:

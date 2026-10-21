@@ -12,7 +12,17 @@ def chunk_by_characters(
     chunk_size: int = 5000,
     overlap: int = 500,
 ) -> list[list[UnifiedMessage]]:
-    """Chunk messages by character count with overlap."""
+    """Chunk messages by character count with overlap.
+
+    ``overlap`` is clamped to stay strictly below ``chunk_size``. Without that
+    clamp an overlap at least as large as the window lets the carry-over take
+    the whole previous chunk, so every chunk grows instead of advancing and the
+    output balloons quadratically in chunk count and duplicated content.
+    """
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be positive")
+    overlap = max(0, min(overlap, chunk_size - 1))
+
     chunks: list[list[UnifiedMessage]] = []
     current_chunk: list[UnifiedMessage] = []
     current_len = 0
