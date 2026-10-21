@@ -10,7 +10,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - `Docker` workflow building the backend and frontend images on every push and pull
   request, and publishing them to GitHub Container Registry from the default branch
-  and from version tags.
+  and from version tags. Both images are publicly pullable:
+  `ghcr.io/ls200464/ex-ai-backend` and `ghcr.io/ls200464/ex-ai-frontend`.
 - `.dockerignore` for both images, so a local `backend/.env` holding real API keys is
   never copied into a published layer.
 - A "Run with Docker" section in the README.

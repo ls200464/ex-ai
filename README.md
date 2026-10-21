@@ -171,6 +171,20 @@ service, update `args.BACKEND_INTERNAL_URL` under the `frontend` service in
 Both images build and publish to the GitHub Container Registry from the `Docker`
 workflow on every push to the default branch and on version tags.
 
+### Prebuilt images
+
+The published images are public, so no registry login is needed:
+
+```bash
+docker pull ghcr.io/ls200464/ex-ai-backend:latest
+docker pull ghcr.io/ls200464/ex-ai-frontend:latest
+```
+
+To use them instead of building from source, replace each service's `build:` key in
+`docker-compose.yml` with the matching `image:`. The published frontend already has
+`BACKEND_INTERNAL_URL=http://backend:8000` baked in, so it expects the backend
+service to keep that name.
+
 ---
 
 ## Configuration
