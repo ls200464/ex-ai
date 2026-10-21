@@ -6,6 +6,33 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `Docker` workflow building the backend and frontend images on every push and pull
+  request, and publishing them to GitHub Container Registry from the default branch
+  and from version tags.
+- `.dockerignore` for both images, so a local `backend/.env` holding real API keys is
+  never copied into a published layer.
+- A "Run with Docker" section in the README.
+
+### Fixed
+
+- **The backend could not start with its default settings.** `DATABASE_URL` defaults
+  to `sqlite+aiosqlite://`, but `aiosqlite` was in neither `requirements.txt` nor
+  `pyproject.toml`, so importing `app.database` raised `ModuleNotFoundError`. This is
+  the exact path the quick start follows.
+- **The frontend image could not build.** The dependency stage ran
+  `npm ci --only=production`, which omits `typescript`, `tailwindcss` and
+  `@tailwindcss/postcss`; `next build` needs all three.
+- **The containerised frontend could not reach the backend.** `rewrites()` hardcoded
+  `http://localhost:8000`, which resolves to the frontend container itself. The target
+  is now a build argument, baked as the Compose service name. Runtime environment
+  variables cannot fix this: rewrites are resolved at build time.
+- The backend image ran as root; it now runs as an unprivileged user.
+- `docker-compose.yml` set `NEXT_PUBLIC_API_URL` at runtime, which has no effect
+  because `NEXT_PUBLIC_*` values are inlined at build time. Removed, along with the
+  obsolete `version` key.
+
 ## [0.1.0] - 2026-10-21
 
 First tagged release. The goal of this version was to make the project usable and

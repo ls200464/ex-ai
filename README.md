@@ -146,6 +146,33 @@ The UI runs at `http://localhost:3000`.
 
 ---
 
+## Run with Docker
+
+The whole stack — Postgres with pgvector, the FastAPI backend, and the Next.js
+frontend — runs with Compose. Put an API key in a `.env` file next to
+`docker-compose.yml`:
+
+```bash
+cp .env.example .env     # then set DEEPSEEK_API_KEY
+docker compose up --build
+```
+
+- Frontend: http://localhost:3000
+- Backend: http://localhost:8000 (interactive docs at `/docs`)
+- Postgres: `localhost:5432`, with the `pgvector` extension available
+
+The browser talks to the Next server on port 3000, which proxies `/api/*` to the
+backend over the Compose network. That proxy target is baked in at build time from
+the `BACKEND_INTERNAL_URL` build argument, because Next.js resolves `rewrites()` at
+build time rather than reading it at runtime — so if you rename the `backend`
+service, update `args.BACKEND_INTERNAL_URL` under the `frontend` service in
+`docker-compose.yml` and rebuild.
+
+Both images build and publish to the GitHub Container Registry from the `Docker`
+workflow on every push to the default branch and on version tags.
+
+---
+
 ## Configuration
 
 `backend/.env`:
