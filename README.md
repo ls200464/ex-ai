@@ -1,5 +1,9 @@
 # ex-skill
 
+[![Tests](https://github.com/ls200464/ex-ai/actions/workflows/tests.yml/badge.svg)](https://github.com/ls200464/ex-ai/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](backend/pyproject.toml)
+
 [中文文档](README.zh-CN.md) · English
 
 Turn exported chat history into a conversational persona.
