@@ -6,6 +6,7 @@ Falls back to LangChain if it's installed, but works standalone with httpx.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 import httpx
@@ -136,6 +137,32 @@ async def chat_completion(
         }
 
 
+def _strip_code_fence(content: str) -> str:
+    """Return the body of a markdown code fence, or the text unchanged.
+
+    Models often wrap JSON in ```json ... ```. A response truncated by the token
+    limit can omit the closing fence; looking the closing marker up with
+    ``str.index`` then raised ``ValueError: substring not found`` and hid the
+    real parse failure. Ending at the string end instead lets a complete JSON
+    body still parse.
+    """
+    fence = "```"
+    start = content.find(fence)
+    if start == -1:
+        return content
+
+    body_start = start + len(fence)
+    # Drop an optional language tag sitting on the opening fence's line.
+    newline = content.find("\n", body_start)
+    if newline != -1 and content[body_start:newline].strip().lower() in ("", "json"):
+        body_start = newline + 1
+
+    body_end = content.find(fence, body_start)
+    if body_end == -1:
+        body_end = len(content)
+    return content[body_start:body_end].strip()
+
+
 async def extract_json(
     system_prompt: str,
     user_input: str,
@@ -167,31 +194,35 @@ Ensure all strings are properly escaped."""
     )
 
     content = result["content"].strip()
-    # Try to extract JSON from the response
-    try:
-        return json.loads(content)
-    except json.JSONDecodeError:
-        # Some models wrap JSON in markdown code blocks
-        if "```json" in content:
-            start = content.index("```json") + 7
-            end = content.index("```", start)
-            return json.loads(content[start:end].strip())
-        elif "```" in content:
-            start = content.index("```") + 3
-            end = content.index("```", start)
-            return json.loads(content[start:end].strip())
-        # Try to fix common JSON issues
+
+    candidates = [content]
+    fenced = _strip_code_fence(content)
+    if fenced != content:
+        candidates.append(fenced)
+
+    # Previously an unparseable fenced block raised the raw JSONDecodeError out
+    # of the except handler, and an unclosed fence raised "substring not found",
+    # so callers could not tell a malformed model response from a bug upstream.
+    last_error: json.JSONDecodeError | None = None
+    for candidate in candidates:
         try:
-            # Sometimes trailing commas or other issues
-            import re
-            fixed = re.sub(r',\s*}', '}', content)
-            fixed = re.sub(r',\s*]', ']', fixed)
-            return json.loads(fixed)
-        except json.JSONDecodeError:
-            raise ValueError(
-                f"Could not parse JSON from response (length={len(content)}): "
-                f"{content[:300]}..."
-            )
+            return json.loads(candidate)
+        except json.JSONDecodeError as error:
+            last_error = error
+
+        # Repair the most common model mistake: trailing commas.
+        repaired = re.sub(r",\s*}", "}", candidate)
+        repaired = re.sub(r",\s*]", "]", repaired)
+        if repaired != candidate:
+            try:
+                return json.loads(repaired)
+            except json.JSONDecodeError as error:
+                last_error = error
+
+    raise ValueError(
+        f"Could not parse JSON from response (length={len(content)}): "
+        f"{content[:300]}..."
+    ) from last_error
 
 
 async def chat_stream(
